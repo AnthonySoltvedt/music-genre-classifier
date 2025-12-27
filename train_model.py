@@ -1,110 +1,78 @@
-# Used to work with folders and file paths
+# train_model.py
 import os
-
-# Used for numerical arrays and matrix operations
 import numpy as np
-
-# Used to build neural network layers and models
+from sklearn.utils import shuffle
 from tensorflow.keras import layers, models
-
-# Converts labels into one-hot encoded vectors
 from tensorflow.keras.utils import to_categorical
+from extract_features import extract_features  # Make sure this file exists
 
-# Imports the MFCC feature extraction function
-from extract_features import extract_features
-
-# Path to the dataset folder
+# Path to the dataset
 DATASET_PATH = "genres_original"
 
-# Gets a sorted list of genre folder names
-genres = sorted([
-    d for d in os.listdir(DATASET_PATH)
-    if os.path.isdir(os.path.join(DATASET_PATH, d))
-])
+# Detect genre folders (skip hidden files)
+genres = sorted([d for d in os.listdir(DATASET_PATH)
+                 if os.path.isdir(os.path.join(DATASET_PATH, d)) and not d.startswith('.')])
+print("Genres detected:", genres)
 
-# Prints all detected genres
-print("Genres:", genres)
-
-# Stores extracted MFCC features
+# Lists to store features and labels
 features = []
-
-# Stores numerical genre labels
 labels = []
 
-# Loops through each genre
+# Loop through each genre folder
 for genre in genres:
-# Creates the full path to the genre folder
     genre_path = os.path.join(DATASET_PATH, genre)
-# Loops through each audio file in the genre
-    for file in os.listdir(genre_path):
-# Ensures only WAV files are processed
-        if file.endswith(".wav"):
-# Builds the full file path
-            file_path = os.path.join(genre_path, file)
-# Extracts MFCC features from the audio
-            mfcc = extract_features(file_path)
-# Adds MFCC features to the feature list
-            features.append(mfcc)
-# Adds the genre index as the label
-            labels.append(genres.index(genre))
+    for file_name in os.listdir(genre_path):
+        if not file_name.endswith(".wav") or file_name.startswith('.'):
+            continue  # Skip non-WAV or hidden files
 
+        file_path = os.path.join(genre_path, file_name)
 
-# Converts feature list into a NumPy array
+        # Extract MFCC features
+        mfccs = extract_features(file_path)
+
+        # Optional: normalize MFCCs
+        mfccs = (mfccs - np.mean(mfccs)) / np.std(mfccs)
+
+        features.append(mfccs)
+        labels.append(genres.index(genre))
+
+# Convert lists to NumPy arrays
 X = np.array(features)
-
-# Converts labels into one-hot encoded format
 y = to_categorical(labels, num_classes=len(genres))
 
-# Adds a channel dimension for CNN input
+# Add channel dimension for CNN input
 X = X[..., np.newaxis]
 
-# Prints shape of the feature array
-print("X shape:", X.shape)
+# Shuffle the dataset
+X, y = shuffle(X, y, random_state=42)
 
-# Prints shape of the label array
-print("y shape:", y.shape)
+print("Feature shape:", X.shape)
+print("Label shape:", y.shape)
 
-# Creates a sequential neural network model
+# Build CNN model
 model = models.Sequential([
-# Defines the input shape of the MFCC data
-    layers.Input(shape=(40, 174, 1)),
-# First convolutional layer
-    layers.Conv2D(32, (3, 3), activation="relu"),
-# Reduces spatial dimensions
+    layers.Input(shape=(X.shape[1], X.shape[2], 1)),
+    layers.Conv2D(32, (3, 3), activation='relu'),
     layers.MaxPooling2D((2, 2)),
-# Second convolutional layer
-    layers.Conv2D(64, (3, 3), activation="relu"),
-# Further reduces dimensions
+    layers.Conv2D(64, (3, 3), activation='relu'),
     layers.MaxPooling2D((2, 2)),
-# Converts 2D feature maps into 1D vector
     layers.Flatten(),
-# Output layer for genre classification
-    layers.Dense(128, activation="relu"),
-    layers.Dense(len(genres), activation="softmax")
+    layers.Dense(128, activation='relu'),
+    layers.Dense(len(genres), activation='softmax')
 ])
 
-model.compile(
-    optimizer="adam",
-# Uses Adam optimizer
-    loss="categorical_crossentropy",
-# Loss function for multi-class classification
-    metrics=["accuracy"]
-# Tracks accuracy during training
-)
+# Compile model
+model.compile(optimizer='adam',
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
 
-# Prints model architecture
+# Print model summary
 model.summary()
 
-# Number of training cycles
-model.fit(
-    X, y,
-    epochs=30,
-# Number of samples per training step
-    batch_size=32,
-# Uses 20% of data for validation
-    validation_split=0.2
-)
-# Saves the trained model to disk
-model.save("genre_model.h5")
-# Confirms the model was saved
-print("Model saved.")
+# Train model
+model.fit(X, y, epochs=30, batch_size=32, validation_split=0.2)
+
+# Save trained model
+MODEL_PATH = "genre_model.h5"
+model.save(MODEL_PATH)
+print(f"Model saved to {MODEL_PATH}")
